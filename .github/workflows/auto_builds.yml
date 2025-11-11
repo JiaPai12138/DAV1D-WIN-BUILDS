@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           latest_tag=$(curl -s "https://code.videolan.org/api/v4/projects/videolan%2Fdav1d/repository/tags" \
-                        | jq -r '.[0].tag_name')
+                        | jq -r '.[0].name')
 
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
@@ -100,8 +100,9 @@ jobs:
           cd build64
 
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          meson setup --buildtype=release .. --default-library=static --backend vs2022 --optimization 3 --prefer-static -Denable_tools=false -Denable_tests=false --vsenv
+          meson setup --buildtype=release .. --default-library=static --backend vs2022 --optimization 3 --prefer-static -Dbitdepths=['8'] -Denable_tools=false -Denable_tests=false --vsenv
           msbuild dav1d.sln /m /p:Configuration=Release /p:Platform=x64
+          for /r %%f in (*.a) do ren "%%f" "%%~nf.lib"
 
           cd ..
           7z a -t7z -m0=LZMA2 -mmt=on -mx=3 -md=4m -mfb=32 -ms=1g -mqs=on -sccUTF-8 -mtc=on -mta=on -mhe=on ^
@@ -118,8 +119,9 @@ jobs:
           cd build86
 
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
-          meson setup --buildtype=release .. --default-library=static --backend vs2022 --optimization 3 --prefer-static -Denable_tools=false -Denable_tests=false --vsenv
+          meson setup --buildtype=release .. --default-library=static --backend vs2022 --optimization 3 --prefer-static -Dbitdepths=['8'] -Denable_tools=false -Denable_tests=false --vsenv
           msbuild .\dav1d.sln /m /p:Configuration=Release /p:Platform=Win32
+          for /r %%f in (*.a) do ren "%%f" "%%~nf.lib"
 
           cd ..
           7z a -t7z -m0=LZMA2 -mmt=on -mx=3 -md=4m -mfb=32 -ms=1g -mqs=on -sccUTF-8 -mtc=on -mta=on -mhe=on ^
