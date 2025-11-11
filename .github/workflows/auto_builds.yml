@@ -1,0 +1,151 @@
+name: Build dav1d on Windows
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    strategy:
+      fail-fast: true
+
+    env:
+      has_release: true
+      tag_name: ""
+      release_name: "Release "
+      latest_tag: ""
+      move_on: true
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Get latest release info
+        id: released
+        shell: bash
+        run: |
+          response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest)
+
+          if echo "$response" | grep -q "Not Found"; then
+            echo "has_release=false" >> $GITHUB_ENV
+          else
+            echo "has_release=true" >> $GITHUB_ENV
+            echo "tag_name=$(echo "$response" | jq -r .tag_name)" >> $GITHUB_ENV
+            echo "release_name=$(echo "$response" | jq -r .name)" >> $GITHUB_ENV
+          fi
+
+      - name: Get latest GitLab release tag
+        id: get_latest_tag
+        shell: bash
+        run: |
+          latest_tag=$(curl -s "https://code.videolan.org/api/v4/projects/videolan%2Fdav1d/repository/tags" \
+                        | jq -r '.[0].tag_name')
+
+          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+
+      - name: Compare GitHub and GitLab release tags
+        shell: bash
+        run: |
+          echo "GitHub tag: ${{ env.tag_name }}"
+          echo "GitLab tag: ${{ env.latest_tag }}"
+
+          if [ "${{ env.tag_name }}" = "${{ env.latest_tag }}" ]; then
+            echo "move_on=false" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "⚠️ Tags differ! Compiling new version!"
+            echo "tag_name=${{ env.latest_tag }}" >> $GITHUB_ENV
+            echo "release_name=${{ env.release_name }}${{ env.latest_tag }}" >> $GITHUB_ENV
+            exit 0
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.12
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install meson ninja
+
+      - name: Check Ninja version
+        run: ninja --version
+
+      - name: Check Meson version
+        run: meson --version
+
+      - name: Setup MSBuild.exe
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Fetch remote code
+        if: ${{ env.move_on == 'true' }}
+        shell: bash
+        run: |
+          git remote set-url origin https://code.videolan.org/videolan/dav1d.git
+          git fetch origin
+          git checkout tags/"${{ env.tag_name }}" -f
+
+      - name: Build DAV1D x64
+        if: ${{ env.move_on == 'true' }}
+        shell: cmd
+        run: |
+          mkdir build64
+          cd build64
+
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          meson setup --buildtype=release .. --default-library=static --backend vs2022 --optimization 3 --prefer-static -Denable_tools=false -Denable_tests=false --vsenv
+          msbuild dav1d.sln /m /p:Configuration=Release /p:Platform=x64
+
+          cd ..
+          7z a -t7z -m0=LZMA2 -mmt=on -mx=3 -md=4m -mfb=32 -ms=1g -mqs=on -sccUTF-8 -mtc=on -mta=on -mhe=on ^
+            DAV1D-windows-x64.7z ^
+            build64 include
+
+      - name: Build DAV1D x86
+        if: ${{ env.move_on == 'true' }}
+        shell: cmd
+        run: |
+          rd /s /q Bin
+
+          mkdir build86
+          cd build86
+
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+          meson setup --buildtype=release .. --default-library=static --backend vs2022 --optimization 3 --prefer-static -Denable_tools=false -Denable_tests=false --vsenv
+          msbuild .\dav1d.sln /m /p:Configuration=Release /p:Platform=Win32
+
+          cd ..
+          7z a -t7z -m0=LZMA2 -mmt=on -mx=3 -md=4m -mfb=32 -ms=1g -mqs=on -sccUTF-8 -mtc=on -mta=on -mhe=on ^
+            DAV1D-windows-x86.7z ^
+            build86 include
+
+      - name: Upload artifact
+        if: ${{ env.move_on == 'true' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: DAV1D-DEC
+          path: |
+            DAV1D-windows-x64.7z
+            DAV1D-windows-x86.7z
+
+      - name: Create Release
+        if: ${{ env.move_on == 'true' }}
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.tag_name }}
+          name: ${{ env.release_name }}
+          draft: false
+          prerelease: false
+          files: |
+            ./DAV1D-windows-x64.7z
+            ./DAV1D-windows-x86.7z
