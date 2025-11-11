@@ -63,25 +63,31 @@ jobs:
           fi
 
       - name: Set up Python
+        if: ${{ env.move_on == 'true' }}
         uses: actions/setup-python@v6
         with:
           python-version: 3.12
 
       - name: Install dependencies
+        if: ${{ env.move_on == 'true' }}
         run: |
           python -m pip install --upgrade pip
           pip install meson ninja
 
       - name: Check Ninja version
+        if: ${{ env.move_on == 'true' }}
         run: ninja --version
 
       - name: Check Meson version
+        if: ${{ env.move_on == 'true' }}
         run: meson --version
 
       - name: Setup MSBuild.exe
+        if: ${{ env.move_on == 'true' }}
         uses: microsoft/setup-msbuild@v2
 
       - name: Setup NASM
+        if: ${{ env.move_on == 'true' }}
         uses: ilammy/setup-nasm@v1
 
       - name: Fetch remote code
